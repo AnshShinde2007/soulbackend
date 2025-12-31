@@ -1,0 +1,76 @@
+services:
+  # ------------------ BACKEND ------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: backend
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./backend/.env
+    # Wait for Database to be HEALTHY
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ------------------ MONGODB ------------------
+  mongodb:
+    image: mongo:7.0
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE}
+    volumes:
+      # FIX: Use Named Volume (Managed by Docker) instead of local folder
+      # This prevents file corruption issues on Windows/WSL
+      - mongodb-data:/data/db
+    # FIX: Healthcheck to prevent Race Conditions
+    healthcheck:
+      test: >
+        mongosh --quiet
+        -u ${MONGO_INITDB_ROOT_USERNAME}
+        -p ${MONGO_INITDB_ROOT_PASSWORD}
+        --authenticationDatabase admin
+        --eval "db.runCommand({ ping: 1 }).ok"
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # ------------------ REDIS ------------------
+  redis:
+    image: redis:7.2
+    container_name: redis
+    ports:
+      - "6379:6379"
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+      --protected-mode no
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+networks:
+  default:
+    driver: bridge
+
+volumes:
+  mongodb-data:
+  redis-data:
